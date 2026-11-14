@@ -1,0 +1,6 @@
+"0","ggplot(base_personas |> filter(!is.na(peluqueria)), aes(x = peluqueria)) +"
+"0","  geom_bar(fill = ""steelblue"") +"
+"0","  coord_flip() + theme_minimal() +"
+"0","  labs(title = ""Frecuencia de peluquería o barbería"","
+"0","       x = ""Frecuencia declarada"", y = ""Cantidad de personas"","
+"0","       caption = ""Fuente: encuesta del equipo; primera respuesta por correo."")"

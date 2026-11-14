@@ -1,0 +1,7 @@
+"0","datos_modelo <- datos_modelo |>"
+"0","  mutate(predicho = fitted(modelo), residuo = resid(modelo))"
+"0","ggplot(datos_modelo, aes(x = predicho, y = residuo)) +"
+"0","  geom_hline(yintercept = 0, color = ""grey50"") + geom_point(alpha = 0.6) +"
+"0","  theme_minimal() + labs(title = ""Residuos del modelo de seguridad inicial"","
+"0","    x = ""Seguridad ajustada (puntos)"", y = ""Residuo (puntos)"","
+"0","    caption = ""Fuente: modelo sobre encuesta y juego unidos."")"

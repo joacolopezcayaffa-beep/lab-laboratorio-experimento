@@ -1,0 +1,7 @@
+"0","ggplot(cruce |> filter(!is.na(cambia_segun_personas), !is.na(cambio_voto)),"
+"0","       aes(x = factor(cambia_segun_personas, levels = c(0, 1), labels = c(""No"", ""Sí"")),"
+"0","           fill = factor(cambio_voto, levels = c(0, 1), labels = c(""Mantuvo"", ""Cambió"")))) +"
+"0","  geom_bar() + theme_minimal() +"
+"0","  labs(title = ""Cambio de voto según adaptación de la vestimenta"","
+"0","       x = ""Cambia su ropa según con quién estará"", y = ""Cantidad de personas"","
+"0","       fill = ""Elección del juego"", caption = ""Fuente: encuesta y juego unidos."")"

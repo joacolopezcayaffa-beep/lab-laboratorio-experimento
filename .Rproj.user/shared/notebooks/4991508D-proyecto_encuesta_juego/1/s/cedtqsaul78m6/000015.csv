@@ -1,0 +1,1 @@
+"0","juego_crudo |> count(identificador) |> count(n, name = ""cantidad_de_identificadores"")"
