@@ -1,3 +1,0 @@
-"0","cruce |> group_by(confianza_grupo) |>"
-"0","  summarise(N = n(), seguridad_media = mean(ronda1_seguridad, na.rm = TRUE),"
-"0","            seguridad_mediana = median(ronda1_seguridad, na.rm = TRUE), .groups = ""drop"")"

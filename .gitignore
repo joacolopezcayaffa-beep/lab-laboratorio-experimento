@@ -1,0 +1,7 @@
+# RStudio
+.Rproj.user/
+.Rhistory
+.RData
+
+# Datos originales con correos (no se suben)
+datos/originales/

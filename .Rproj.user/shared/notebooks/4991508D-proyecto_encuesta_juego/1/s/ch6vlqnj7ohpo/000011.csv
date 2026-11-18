@@ -1,6 +1,0 @@
-"0","ggplot(cruce, aes(x = confianza_grupo, y = ronda1_seguridad)) +"
-"0","  geom_boxplot() + geom_point(alpha = 0.5) +"
-"0","  facet_wrap(~ sexo_grupo) + theme_minimal() +"
-"0","  labs(title = ""Confianza en la ropa y seguridad inicial, por sexo"","
-"0","       x = ""Influencia de la ropa"", y = ""Seguridad inicial (1 a 5)"","
-"0","       caption = ""Fuente: encuesta y juego unidos; revisar N de cada subgrupo."")"

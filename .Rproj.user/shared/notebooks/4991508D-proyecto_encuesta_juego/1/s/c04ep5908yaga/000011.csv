@@ -1,6 +1,0 @@
-"0","sd(datos_modelo$residuo)"
-"1","[1]"
-"1"," 1.052838"
-"1","
-"
-"0","datos_modelo |> filter(abs(residuo) == max(abs(residuo)))"

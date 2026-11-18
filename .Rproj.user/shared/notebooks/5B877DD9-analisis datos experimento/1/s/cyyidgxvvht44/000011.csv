@@ -1,8 +1,0 @@
-"0","# Paquetes"
-"0",""
-"0","#install.packages(c(""gtsummary"", ""effectsize""))"
-"0",""
-"0",""
-"0","library(effectsize)"
-"0","library(gtsummary)"
-"0","library(dplyr)"
