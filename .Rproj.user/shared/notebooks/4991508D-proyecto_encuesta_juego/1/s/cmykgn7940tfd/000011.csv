@@ -1,6 +1,0 @@
-"0","ggplot(cruce, aes(x = confianza_grupo, y = ronda1_seguridad)) +"
-"0","  geom_boxplot() + geom_point(alpha = 0.5) + theme_minimal() +"
-"0","  labs(title = ""Seguridad inicial del juego según confianza asociada a la ropa"","
-"0","       x = ""Influencia de la ropa en la confianza diaria"","
-"0","       y = ""Seguridad de la elección inicial (1 a 5)"","
-"0","       caption = ""Fuente: encuesta y juego unidos; una respuesta por correo."")"

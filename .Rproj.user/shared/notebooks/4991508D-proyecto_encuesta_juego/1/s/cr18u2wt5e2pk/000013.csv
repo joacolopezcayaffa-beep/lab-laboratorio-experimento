@@ -1,1 +1,0 @@
-"0","juego |> count(email_clave) |> count(n, name = ""cantidad_de_claves"")"

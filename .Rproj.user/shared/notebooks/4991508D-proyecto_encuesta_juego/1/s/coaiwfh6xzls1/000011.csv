@@ -1,1 +1,0 @@
-"0","base_personas |> count(carrera) |> mutate(porcentaje = 100 * n / sum(n))"

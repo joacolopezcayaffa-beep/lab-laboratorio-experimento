@@ -1,0 +1,6 @@
+variable,descripcion,tipo,codificacion,faltantes
+id,"Código de participante (P01, P02, ...), el mismo que en la encuesta",Texto nominal,P + número de dos cifras,No admite
+ronda1_eleccion,Actividad elegida antes de mostrar resultados,Categórica nominal,1=Lógica; 2=Mímica; 3=Dibujo; 4=Memoria,Vacío sin respuesta
+ronda1_seguridad,Seguridad de la elección antes de mostrar resultados,Ordinal,1=Mínima; 2; 3; 4; 5=Máxima,Vacío sin respuesta
+ronda2_eleccion,Actividad elegida luego de conocer los resultados del grupo,Categórica nominal,1=Lógica; 2=Mímica; 3=Dibujo; 4=Memoria,Vacío sin respuesta
+ronda2_seguridad,Seguridad de la elección de la segunda ronda,Ordinal,1=Mínima; 2; 3; 4; 5=Máxima,Vacío sin respuesta

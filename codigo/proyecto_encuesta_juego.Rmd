@@ -1,0 +1,734 @@
+---
+title: "Vestimenta, confianza y decisiones en un juego de votaciones"
+subtitle: "Proyecto final · Introducción a la Ciencia de Datos"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+date: "2026-11-14"
+lang: es
+knit: (function(input, ...) rmarkdown::render(input, output_dir = here::here("resultados")))
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 8, fig.height = 5)
+```
+
+Este informe adapta el archivo `codigo/analisis datos experimento.Rmd` a
+nuestros datos. Sigue el orden del archivo base de la profesora: datos, tabla descriptiva,
+asociación, gráficos, aumentación de datos y modelo. Los comentarios finales
+incorporan los apuntes del equipo sobre N, causalidad y críticas al juego.
+La tabla descriptiva, los tests de asociación y el remuestreo provienen del
+ejemplo de la profesora; las uniones y gráficas, de las clases 7 y 9; y los
+modelos lineales, de la clase 12. No se ejecutan scripts de clase que descarguen
+otras bases o instalen paquetes automáticamente.
+
+**Pregunta:** ¿Cómo se relacionan los hábitos de vestimenta y la influencia
+de la ropa sobre la confianza con la seguridad declarada y los cambios de
+elección en el juego?
+
+## Paquetes
+
+Abrir primero `lab-laboratorio-experimento.Rproj` y luego este archivo.
+Las rutas parten de la raíz del proyecto, igual que en los ejemplos con `here`.
+Los datos que usa el informe están en `datos/crudos` y el informe
+renderizado se guarda en `resultados`.
+
+```{r paquetes, message=FALSE}
+# Si falta alguno, instalarlo una sola vez desde la consola:
+# install.packages(c("dplyr", "readr", "readxl", "here", "ggplot2",
+#                    "gtsummary", "effectsize"))
+library(dplyr)
+library(readr)
+library(readxl)
+library(here)
+library(ggplot2)
+library(gtsummary)
+library(effectsize)
+```
+
+# Datos: cargar encuesta y juego
+
+La encuesta recoge características de los estudiantes, hábitos de cuidado
+personal y criterios de vestimenta. El juego registra una elección entre
+cuatro actividades y su seguridad, antes y después de mostrar resultados
+grupales. Cada participante tiene un código (`id`: P01, P02, ...) que es el
+mismo en los dos instrumentos y permite vincularlos.
+
+Los archivos de `datos/crudos` se generan con `codigo/00_anonimizar.R` a
+partir de las exportaciones originales del formulario y del juego. Cada
+tabla tiene su diccionario, que consultamos para interpretar los códigos.
+
+```{r importar}
+encuesta_cruda <- read_csv(
+  here("datos/crudos/encuesta.csv"), show_col_types = FALSE
+)
+juego_crudo <- read_csv(
+  here("datos/crudos/juego.csv"), show_col_types = FALSE
+)
+diccionario_encuesta <- read_csv(
+  here("datos/crudos/diccionario_encuesta.csv"), show_col_types = FALSE
+)
+diccionario_juego <- read_csv(
+  here("datos/crudos/diccionario_juego.csv"), show_col_types = FALSE
+)
+```
+
+**Alcance de la fuente.** Una fila de encuesta representa una respuesta, no
+necesariamente una persona distinta. Una fila del juego contiene las dos
+rondas de un identificador. Los archivos no incluyen una columna que
+distinga observaciones recogidas de observaciones sintéticas. Antes de
+presentar el trabajo, el equipo debe documentar cuáles registros, si los hay,
+fueron generados, con qué procedimiento y cuántos participantes efectivos
+hubo. El informe describe los archivos disponibles; sus filas no certifican
+por sí mismas ese número de participantes reales.
+
+No constan aquí el número de personas invitadas ni el de quienes rechazaron
+participar: no se calcula una tasa de respuesta. Tampoco se reconstruye el
+cuestionario completo a partir de los nombres de las variables. Para la
+entrega, debe acompañarse con el formulario y las instrucciones originales
+del juego.
+
+## Revisar los datos originales
+
+El perfilado diagnostica sin modificar las tablas.
+
+```{r perfilado-funcion}
+# Funciones, sapply(), is.na(), unique(), min() y max(): clases 3, 5, 7 y 9.
+perfil <- function(datos) {
+  tibble(
+    variable = names(datos),
+    tipo = sapply(datos, function(x) class(x)[1]),
+    distintos = sapply(datos, function(x) length(unique(x[!is.na(x)]))),
+    faltantes = sapply(datos, function(x) sum(is.na(x))),
+    minimo = sapply(datos, function(x) {
+      if (is.numeric(x) && sum(!is.na(x)) > 0) min(x, na.rm = TRUE) else NA_real_
+    }),
+    maximo = sapply(datos, function(x) {
+      if (is.numeric(x) && sum(!is.na(x)) > 0) max(x, na.rm = TRUE) else NA_real_
+    })
+  )
+}
+dim(encuesta_cruda)
+dim(juego_crudo)
+perfil(encuesta_cruda)
+perfil(juego_crudo)
+
+# Filas idénticas y repeticiones de la clave son problemas diferentes.
+sum(duplicated(encuesta_cruda))
+sum(duplicated(juego_crudo))
+encuesta_cruda |> count(id) |> count(n, name = "cantidad_de_codigos")
+juego_crudo |> count(id) |> count(n, name = "cantidad_de_codigos")
+```
+
+El diccionario de encuesta indica que **0 es una respuesta válida** en las
+variables binarias y en algunos tiempos; no se reemplaza por NA.
+`carrera_otro_detalle` puede estar vacío por el diseño de la pregunta.
+Las frecuencias y los tiempos están codificados por categorías: un 7 en
+peluquería no significa siete visitas. Los códigos no tienen distancias
+iguales.
+
+El diccionario original del juego conservaba nombres de una versión anterior
+(`ronda1_primera`, `ronda2_primera`) que en la hoja de votaciones se llaman
+`ronda1_eleccion` y `ronda2_eleccion`, y describía columnas que no existen
+(carta y segunda opción). `diccionario_juego.csv` quedó con las columnas
+actuales; no se inventan las que faltan.
+
+## Preparar las tablas
+
+Las tablas ya tienen una columna por variable. Conservamos los originales y
+las respuestas repetidas. La unión usa el código `id`. El perfilado de las
+exportaciones originales encontró un correo escrito con mayúsculas distintas
+en la encuesta y en el juego; al asignar los códigos, el correo se pasó a
+minúscula y sin espacios, por lo que esa persona tiene el mismo código en
+ambos instrumentos.
+
+```{r limpiar}
+encuesta <- encuesta_cruda |>
+  filter(consentimiento == 1)
+juego <- juego_crudo
+
+tibble(
+  tabla = c("Encuesta cruda", "Encuesta con consentimiento", "Juego"),
+  filas = c(nrow(encuesta_cruda), nrow(encuesta), nrow(juego))
+)
+encuesta |> count(id) |> count(n, name = "cantidad_de_codigos")
+juego |> count(id) |> count(n, name = "cantidad_de_codigos")
+
+# Revisar rangos sin eliminar ni reemplazar observaciones silenciosamente.
+tibble(
+  control = c("Edad fuera de 0 a 120", "Sexo fuera de 0/1",
+              "Confianza en ropa fuera de 1 a 3", "Peluquería fuera de 1 a 10",
+              "Elección R1 fuera de 1 a 4", "Elección R2 fuera de 1 a 4",
+              "Seguridad R1 fuera de 1 a 5", "Seguridad R2 fuera de 1 a 5"),
+  casos = c(
+    sum(encuesta$edad < 0 | encuesta$edad > 120, na.rm = TRUE),
+    sum(!encuesta$sexo %in% c(0, 1), na.rm = TRUE),
+    sum(encuesta$confianza_ropa < 1 | encuesta$confianza_ropa > 3, na.rm = TRUE),
+    sum(encuesta$frec_peluqueria < 1 | encuesta$frec_peluqueria > 10, na.rm = TRUE),
+    sum(juego$ronda1_eleccion < 1 | juego$ronda1_eleccion > 4, na.rm = TRUE),
+    sum(juego$ronda2_eleccion < 1 | juego$ronda2_eleccion > 4, na.rm = TRUE),
+    sum(juego$ronda1_seguridad < 1 | juego$ronda1_seguridad > 5, na.rm = TRUE),
+    sum(juego$ronda2_seguridad < 1 | juego$ronda2_seguridad > 5, na.rm = TRUE)
+  )
+)
+```
+
+**Unidad de análisis.** La base completa sigue teniendo una fila por
+respuesta. Para describir personas y ajustar modelos construimos además
+`encuesta_personas`: conserva la primera respuesta de cada código en el orden
+del archivo, usando `distinct()` como en clase 7. Es una regla explícita de
+selección, no una afirmación de que esa respuesta es más correcta. Al final
+comparamos con la última respuesta disponible. No promediamos códigos
+nominales ni sumamos respuestas de una misma persona como casos independientes.
+
+```{r personas}
+encuesta_personas <- encuesta |> distinct(id, .keep_all = TRUE)
+nrow(encuesta_personas)
+sum(duplicated(juego$id))
+# El resultado anterior debe ser 0: cada código del juego aporta una sola fila.
+```
+
+## Unir encuesta y juego
+
+Usamos `left_join()` con encuesta a la izquierda: conserva todas sus
+respuestas, aunque alguien no tenga juego. El juego no aporta nuevas
+personas a esa base. Para analizar el cruce usamos la versión de una
+respuesta por código. Los NA de juego de alguien sin correspondencia no son
+ceros ni indican que no cambió de voto.
+
+```{r unir}
+base_completa <- left_join(encuesta, juego, by = "id")
+base_personas <- left_join(encuesta_personas, juego, by = "id")
+
+control_union <- tibble(
+  control = c("Respuestas de encuesta", "Códigos distintos en encuesta",
+              "Filas de juego", "Códigos distintos en juego",
+              "Filas después del left join completo", "Códigos con ambas fuentes",
+              "Códigos de encuesta sin juego", "Códigos de juego sin encuesta"),
+  N = c(nrow(encuesta), nrow(encuesta_personas), nrow(juego),
+        n_distinct(juego$id), nrow(base_completa),
+        sum(encuesta_personas$id %in% juego$id),
+        sum(!encuesta_personas$id %in% juego$id),
+        sum(!juego$id %in% encuesta_personas$id))
+)
+control_union
+```
+
+En estos archivos hay `r nrow(encuesta)` respuestas de encuesta y
+`r nrow(encuesta_personas)` códigos distintos. La base completa conserva
+`r nrow(base_completa)` filas. Hay
+`r sum(encuesta_personas$id %in% juego$id)` códigos con
+ambas fuentes. Estos conteos distinguen respuestas de identificadores;
+la cantidad de participantes reales depende también de documentar el origen
+de los registros.
+
+## Preparar etiquetas e indicadores para el análisis original
+
+Esta preparación no aumenta el N ni crea participantes sintéticos. Las etiquetas
+solo hacen legibles los códigos originales. Los indicadores se calculan a partir
+de respuestas existentes. Mantenemos separados los dos conceptos
+de seguridad: la influencia de la ropa en la confianza diaria y la seguridad
+de la elección en el juego.
+
+| Variable nueva | Cálculo o codificación | Qué representa |
+|---|---|---|
+| `id` | P + número, asignado en `codigo/00_anonimizar.R` | Código de participante y clave de unión |
+| `sexo_grupo` | 0 = Femenino; 1 = Masculino | Etiqueta del código de encuesta |
+| `peluqueria` | Factor con etiquetas del diccionario | Frecuencia por categoría, no número de visitas |
+| `confianza_grupo` | 1 = No influye; 2 = Impacto moderado; 3 = Influye significativamente | Influencia declarada de la ropa |
+| `cambio_voto` | 1 si elección R1 difiere de R2; 0 si coincide | Cambio de primera opción |
+| `cambio_seguridad` | Seguridad R2 menos seguridad R1 | Cambio en puntos de la escala del juego |
+
+```{r variables}
+preparar <- function(datos) {
+  datos |>
+    mutate(
+      sexo_grupo = factor(sexo, levels = c(0, 1), labels = c("Femenino", "Masculino")),
+      peluqueria = factor(frec_peluqueria, levels = 1:10,
+        labels = c("Más de 6 meses", "Cada 6 meses", "Cada 5 meses",
+                   "Cada 4 meses", "Cada 3 meses", "Cada 2 meses",
+                   "1 vez al mes", "2 veces al mes", "1 vez a la semana",
+                   "Más de 1 vez a la semana")),
+      confianza_grupo = factor(confianza_ropa, levels = 1:3,
+        labels = c("No influye", "Impacto moderado", "Influye significativamente")),
+      cambio_voto = as.numeric(ronda1_eleccion != ronda2_eleccion),
+      cambio_seguridad = ronda2_seguridad - ronda1_seguridad
+    )
+}
+base_personas <- preparar(base_personas)
+cruce <- base_personas |> filter(!is.na(ronda1_eleccion))
+
+# Segundo perfilado: verificar la tabla final después de limpiar y unir.
+perfil(base_personas)
+```
+
+# Tabla descriptiva
+
+## Caracterizar la población observada
+
+Describimos los registros seleccionados de estudiantes que respondieron,
+sin asumir representatividad de toda la UM o de Uruguay. No conocemos un
+mecanismo de selección aleatorio. Las tablas siguientes usan una respuesta
+por participante y los porcentajes se calculan entre respuestas válidas.
+
+```{r caracterizacion}
+base_personas |> count(sexo_grupo) |> mutate(porcentaje = 100 * n / sum(n))
+base_personas |> count(carrera) |> mutate(porcentaje = 100 * n / sum(n))
+summary(base_personas$edad)
+base_personas |> count(confianza_grupo) |> mutate(porcentaje = 100 * n / sum(n))
+
+resumen_criterios <- base_personas |>
+  summarise(
+    N = n(),
+    comodidad = 100 * mean(fac_comodidad, na.rm = TRUE),
+    clima = 100 * mean(fac_clima, na.rm = TRUE),
+    estilo = 100 * mean(fac_estilo, na.rm = TRUE),
+    como_me_ven = 100 * mean(fac_como_me_ven, na.rm = TRUE),
+    formalidad = 100 * mean(fac_formalidad, na.rm = TRUE)
+  )
+resumen_criterios
+```
+
+La edad va de `r min(base_personas$edad, na.rm = TRUE)` a
+`r max(base_personas$edad, na.rm = TRUE)` años, con mediana
+`r median(base_personas$edad, na.rm = TRUE)`. El
+`r round(100 * mean(base_personas$fac_formalidad, na.rm = TRUE), 1)`%
+marca la formalidad exigida como criterio para vestirse en facultad.
+Esto **no significa que ese porcentaje use ropa formal**: esa conducta no se
+preguntó directamente. Al poder marcar varios criterios, sus porcentajes
+no tienen por qué sumar 100%.
+
+## Tabla descriptiva como la del ejemplo
+
+La tabla compara por sexo. Edad se resume con media y desvío; las escalas
+ordinales se presentan como categorías. `add_overall()` incorpora el total,
+`add_n()` muestra los no faltantes y `add_p()` sigue el ejemplo de la profesora.
+Usamos Welch para edad y Fisher para las categorías con celdas pequeñas.
+En tablas de más de dos categorías, la simulación de Fisher también está en
+el ejemplo. Los p-valores son exploratorios y su interpretación como
+inferencia exige que las observaciones correspondan a personas reales e
+independientes; el archivo por sí solo no verifica ese origen.
+
+```{r tabla-descriptiva}
+set.seed(123)
+tabla <- base_personas |>
+  select(sexo_grupo, edad, peluqueria, confianza_grupo,
+         cambia_segun_personas, repite_outfit) |>
+  tbl_summary(
+    by = sexo_grupo,
+    type = list(edad ~ "continuous", cambia_segun_personas ~ "dichotomous",
+                repite_outfit ~ "dichotomous"),
+    value = list(cambia_segun_personas ~ 1, repite_outfit ~ 1),
+    statistic = list(edad ~ "{mean} ({sd})"),
+    label = list(edad ~ "Edad (años)", peluqueria ~ "Frecuencia de peluquería",
+      confianza_grupo ~ "Influencia de la ropa sobre la confianza",
+      cambia_segun_personas ~ "Cambia vestimenta según con quién estará",
+      repite_outfit ~ "Repite outfit sin problema")
+  ) |>
+  add_overall() |>
+  add_n() |>
+  add_p(test = list(edad ~ "t.test", peluqueria ~ "fisher.test",
+                    confianza_grupo ~ "fisher.test",
+                    cambia_segun_personas ~ "fisher.test", repite_outfit ~ "fisher.test"),
+        test.args = list(peluqueria ~ list(simulate.p.value = TRUE, B = 1e4),
+                         confianza_grupo ~ list(simulate.p.value = TRUE, B = 1e4))) |>
+  bold_p(t = 0.05) |>
+  bold_labels()
+tabla
+```
+
+# Asociación
+
+## Vestimenta y cambio de voto
+
+Seguimos el bloque categórica por categórica del ejemplo: cruzamos cambiar
+vestimenta con cambiar voto. Fisher sirve cuando hay frecuencias pequeñas;
+phi resume la magnitud de la asociación. Ninguno identifica una causa.
+
+```{r asociacion}
+tab <- table(cruce$cambia_segun_personas, cruce$cambio_voto)
+tab
+asociacion <- fisher.test(tab)
+asociacion
+phi(tab)
+```
+
+Fisher devuelve p = `r round(asociacion$p.value, 3)`.
+`r ifelse(asociacion$p.value < 0.05, "El cruce presenta evidencia exploratoria de asociación al nivel de 5%.", "No encontramos evidencia suficiente de asociación en este cruce al nivel de 5%.")`
+La ausencia de evidencia no demuestra que la relación sea inexistente.
+El resultado está sujeto al tamaño y selección de los grupos y al origen
+de los datos. No se interpreta como que la vestimenta provoca cambios de voto.
+
+## Qué ocurrió entre rondas
+
+```{r rondas}
+cruce |> count(ronda1_eleccion)
+cruce |> count(ronda2_eleccion)
+cruce |> count(cambio_voto)
+cruce |> count(ronda1_seguridad)
+cruce |> count(ronda2_seguridad)
+summary(cruce$cambio_seguridad)
+```
+
+En el cruce cambiaron de elección `r sum(cruce$cambio_voto, na.rm = TRUE)` de
+`r sum(!is.na(cruce$cambio_voto))` claves. En la segunda ronda,
+`r sum(cruce$ronda2_seguridad == 5, na.rm = TRUE)` de
+`r sum(!is.na(cruce$ronda2_seguridad))` declararon la seguridad máxima.
+Esta concentración deja poca variación para explicar. Cambiar de voto no
+equivale necesariamente a seguir a la mayoría: también puede reflejar una
+reconsideración, una preferencia débil o la interpretación de las reglas.
+Los códigos de actividad son 1 = Lógica, 2 = Mímica, 3 = Dibujo, 4 = Memoria.
+
+# Gráficos
+
+Todas las gráficas de esta sección usan los registros originales de encuesta y
+juego, después de unirlos y seleccionar una respuesta por participante. Todavía no
+se ha generado la base aumentada. Las etiquetas y los indicadores describen
+esas respuestas; no agregan personas ni respuestas simuladas.
+
+## Gráfica 1: frecuencia de peluquería
+
+Las barras cuentan personas por categoría. No tratamos los códigos como
+cantidades de visitas.
+
+```{r grafica-peluqueria}
+ggplot(base_personas |> filter(!is.na(peluqueria)), aes(x = peluqueria)) +
+  geom_bar(fill = "steelblue") +
+  coord_flip() + theme_minimal() +
+  labs(title = "Frecuencia de peluquería o barbería",
+       x = "Frecuencia declarada", y = "Cantidad de personas",
+       caption = "Fuente: encuesta del equipo; primera respuesta por participante.")
+```
+
+## Gráfica 2: edad y peluquería
+
+La caja compara la distribución de edad dentro de cada frecuencia; los puntos
+muestran las observaciones y permiten reconocer grupos pequeños. Una línea
+entre códigos de frecuencia supondría una distancia que el cuestionario no
+mide, por eso aquí usamos boxplot.
+
+```{r grafica-edad}
+ggplot(base_personas |> filter(!is.na(peluqueria), !is.na(edad)),
+       aes(x = peluqueria, y = edad)) +
+  geom_boxplot() + geom_point(alpha = 0.5) +
+  coord_flip() + theme_minimal() +
+  labs(title = "Edad según frecuencia de peluquería",
+       x = "Frecuencia declarada", y = "Edad (años)",
+       caption = "Fuente: encuesta del equipo; primera respuesta por participante.")
+```
+
+## Gráfica 3: confianza en la ropa y seguridad en el juego
+
+Esta es una relación entre una pregunta de encuesta (X) y una del juego (Y).
+La caja resume la seguridad inicial según la influencia declarada de la ropa.
+Se usa la primera ronda para estudiar decisiones anteriores a la devolución
+de los resultados grupales. Ambas variables son ordinales.
+
+```{r grafica-cruce}
+cruce |> group_by(confianza_grupo) |>
+  summarise(N = n(), seguridad_media = mean(ronda1_seguridad, na.rm = TRUE),
+            seguridad_mediana = median(ronda1_seguridad, na.rm = TRUE), .groups = "drop")
+ggplot(cruce, aes(x = confianza_grupo, y = ronda1_seguridad)) +
+  geom_boxplot() + geom_point(alpha = 0.5) + theme_minimal() +
+  labs(title = "Seguridad inicial del juego según confianza asociada a la ropa",
+       x = "Influencia de la ropa en la confianza diaria",
+       y = "Seguridad de la elección inicial (1 a 5)",
+       caption = "Fuente: encuesta y juego unidos; una respuesta por participante.")
+```
+
+## Gráfica 4: cambio de voto y adaptación de la vestimenta
+
+Las barras muestran cuántas personas cambiaron o mantuvieron su elección en
+cada grupo. Como los grupos pueden tener distinto tamaño, acompañamos los
+conteos con una tabla de porcentajes dentro de cada grupo.
+
+```{r grafica-cambio}
+cruce |> count(cambia_segun_personas, cambio_voto) |>
+  group_by(cambia_segun_personas) |>
+  mutate(porcentaje = 100 * n / sum(n)) |> ungroup()
+ggplot(cruce |> filter(!is.na(cambia_segun_personas), !is.na(cambio_voto)),
+       aes(x = factor(cambia_segun_personas, levels = c(0, 1), labels = c("No", "Sí")),
+           fill = factor(cambio_voto, levels = c(0, 1), labels = c("Mantuvo", "Cambió")))) +
+  geom_bar() + theme_minimal() +
+  labs(title = "Cambio de voto según adaptación de la vestimenta",
+       x = "Cambia su ropa según con quién estará", y = "Cantidad de personas",
+       fill = "Elección del juego", caption = "Fuente: encuesta y juego unidos.")
+```
+
+## Mirar la relación dentro de subgrupos
+
+Como en clase 9, separamos por sexo para observar si el patrón de la tercera
+gráfica se mantiene. Los grupos pueden ser muy pequeños: se muestran sus N
+y no se ajusta una regresión distinta para cada uno.
+
+```{r grafica-subgrupos}
+cruce |> count(sexo_grupo, confianza_grupo)
+ggplot(cruce, aes(x = confianza_grupo, y = ronda1_seguridad)) +
+  geom_boxplot() + geom_point(alpha = 0.5) +
+  facet_wrap(~ sexo_grupo) + theme_minimal() +
+  labs(title = "Confianza en la ropa y seguridad inicial, por sexo",
+       x = "Influencia de la ropa", y = "Seguridad inicial (1 a 5)",
+       caption = "Fuente: encuesta y juego unidos; revisar N de cada subgrupo.")
+```
+
+# Aumentación de datos
+
+Esta sección va después de las gráficas y antes del modelo, como en el archivo
+base. Primero dejamos preparado `df`, con Y y las dos X originales y una fila
+por participante. Se excluyen solo los casos sin dato en alguna de esas variables.
+Los datos originales se conservan para comparar el resultado del modelo.
+
+```{r preparar-modelo}
+df <- cruce |>
+  select(ronda1_seguridad, confianza_ropa, cambia_segun_personas) |>
+  na.omit()
+nrow(df)
+nrow(cruce) - nrow(df)
+```
+
+Usamos la función `augment_boot()` del ejemplo de la profesora. Toma filas con
+reposición y permite añadir ruido a las columnas numéricas. La aplicamos con
+`noise = 0`: nuestras tres variables son escalas ordinales o una respuesta
+binaria; agregarles ruido normal produciría decimales y posibles valores fuera
+de sus códigos. Esta elección conserva las combinaciones y categorías
+originales, manteniendo el procedimiento de remuestreo de la base genérica.
+
+```{r aumentacion}
+augment_boot <- function(data, n_new, noise = 0.1) {
+  idx <- sample(nrow(data), n_new, replace = TRUE)
+  out <- data[idx, ]
+  num <- names(out)[sapply(out, is.numeric)]
+  for (v in num) {
+    out[[v]] <- out[[v]] + rnorm(n_new, 0, noise * sd(data[[v]]))
+  }
+  out
+}
+
+set.seed(123)
+df_boot <- augment_boot(df, n_new = 200, noise = 0)
+tibble(
+  base = c("Original seleccionada", "Artificial por remuestreo"),
+  filas = c(nrow(df), nrow(df_boot))
+)
+```
+
+Las 200 filas artificiales no son 200 personas nuevas. La aumentación permite
+practicar el ajuste solicitado, pero no soluciona el N pequeño ni valida el
+modelo con información nueva. No interpretamos los p-valores de las copias
+como evidencia adicional: tratarlas como casos independientes exageraría la
+precisión. Tampoco estamos calculando un intervalo bootstrap, porque no
+repetimos muchas estimaciones para estudiar su distribución. Si las fuentes
+ya contenían registros sintéticos, remuestrearlos tampoco los convierte en
+observaciones reales.
+
+# Modelo
+
+## Explicar la seguridad inicial con X de la encuesta
+
+Elegimos Y = seguridad de la primera elección. Las X son la influencia de
+la ropa en la confianza y cambiar la vestimenta según las personas con
+quienes se estará. La primera aproxima el vínculo declarado entre apariencia
+y seguridad; la segunda, la adaptación al contexto social. Son conceptos
+relacionados con la pregunta del proyecto, pero no idénticos a la decisión
+del juego. No seleccionamos variables para conseguir significación.
+
+Usamos `lm()`, `summary()` y `coef()` de la clase 12. Aplicar un modelo lineal
+a escalas ordinales es una aproximación: supone iguales distancias entre
+puntos de seguridad y entre códigos de confianza. El segundo modelo trata
+la confianza como factor para revisar esta última decisión, con más
+parámetros. No incorporamos modelos que no estén en clase.
+
+```{r modelo}
+datos_modelo <- df  # Registros originales válidos, definidos antes de aumentar.
+nrow(datos_modelo)
+nrow(cruce) - nrow(datos_modelo)  # Casos excluidos por faltantes en Y o X.
+
+modelo <- lm(ronda1_seguridad ~ confianza_ropa + cambia_segun_personas,
+             data = datos_modelo)
+summary(modelo)
+coef(modelo)
+summary(modelo)$r.squared
+
+modelo_categorias <- lm(ronda1_seguridad ~ factor(confianza_ropa) + cambia_segun_personas,
+                        data = datos_modelo)
+summary(modelo_categorias)
+```
+
+El modelo principal usa `r nrow(datos_modelo)` observaciones y tiene
+`r modelo$df.residual` grados de libertad residuales. Su R² es
+`r round(summary(modelo)$r.squared, 3)`: describe la proporción de variación
+de seguridad inicial que recoge dentro de esta base.
+
+El coeficiente de confianza en la ropa es
+`r round(coef(modelo)["confianza_ropa"], 3)`: un punto más en su código se
+asocia con esa diferencia en puntos de seguridad inicial, manteniendo fija
+la adaptación de vestimenta. El coeficiente de adaptación es
+`r round(coef(modelo)["cambia_segun_personas"], 3)`: compara quienes contestan
+sí con quienes contestan no, al mismo código de confianza. Son asociaciones,
+no efectos causales. El intercepto evalúa confianza = 0, fuera de su escala,
+por lo que no representa un perfil observado.
+
+No se usa la seguridad de la segunda ronda para explicar la primera, porque
+se mediría después de la devolución grupal. Tampoco se estima un gran modelo
+con todas las preguntas: el N y la variación disponible son limitados.
+
+### Revisar residuos y valores extremos
+
+Como en clase 12, miramos qué deja sin explicar el modelo. No agregamos una
+batería de pruebas de Econometría. Los valores 1 y 5 son extremos de una
+escala válida: no se eliminan por estar lejos del promedio.
+
+```{r residuos}
+datos_modelo <- datos_modelo |>
+  mutate(predicho = fitted(modelo), residuo = resid(modelo))
+ggplot(datos_modelo, aes(x = predicho, y = residuo)) +
+  geom_hline(yintercept = 0, color = "grey50") + geom_point(alpha = 0.6) +
+  theme_minimal() + labs(title = "Residuos del modelo de seguridad inicial",
+    x = "Seguridad ajustada (puntos)", y = "Residuo (puntos)",
+    caption = "Fuente: modelo sobre encuesta y juego unidos.")
+sd(datos_modelo$residuo)
+datos_modelo |> filter(abs(residuo) == max(abs(residuo)))
+```
+
+La última tabla muestra los casos con mayor error absoluto sin revelar su
+identidad. Sirve para discutir qué perfiles describe peor el modelo; no es
+una razón automática para quitarlos. Un ajuste bajo también es informativo:
+la seguridad de elegir una actividad podría depender de habilidades,
+preferencias o vínculos grupales que la encuesta de vestimenta no mide.
+
+### Sensibilidad a las respuestas repetidas
+
+Conservamos las fuentes y repetimos el cálculo eligiendo la última respuesta
+de cada participante en el orden del CSV. No es una nueva muestra independiente.
+Las diferencias muestran cuánto depende el resultado de esa decisión.
+
+```{r sensibilidad}
+encuesta_ultima <- encuesta |> filter(!duplicated(id, fromLast = TRUE))
+cruce_ultima <- left_join(encuesta_ultima, juego, by = "id") |>
+  filter(!is.na(ronda1_eleccion)) |>
+  select(ronda1_seguridad, confianza_ropa, cambia_segun_personas) |> na.omit()
+modelo_ultima <- lm(ronda1_seguridad ~ confianza_ropa + cambia_segun_personas,
+                    data = cruce_ultima)
+tibble(
+  respuesta = c("Primera", "Última"),
+  N = c(nrow(datos_modelo), nrow(cruce_ultima)),
+  beta_confianza = c(coef(modelo)[2], coef(modelo_ultima)[2]),
+  beta_adaptacion = c(coef(modelo)[3], coef(modelo_ultima)[3]),
+  R2 = c(summary(modelo)$r.squared, summary(modelo_ultima)$r.squared)
+)
+```
+
+## Modelo sobre la base aumentada y comparación
+
+Después de la aumentación ajustamos la misma regresión sobre `df_boot`, para
+completar la secuencia del archivo base. La comparamos con la regresión sobre
+los registros originales. Mantenemos iguales Y y X; solo cambia el conjunto
+de filas utilizado. La interpretación sobre participantes se apoya en los
+registros originales y en que su procedencia esté documentada.
+
+```{r modelo-aumentado}
+modelo_boot <- lm(ronda1_seguridad ~ confianza_ropa + cambia_segun_personas,
+                  data = df_boot)
+coef(modelo_boot)
+summary(modelo_boot)$r.squared
+
+tibble(
+  base = c("Original seleccionada", "Artificial por remuestreo"),
+  filas = c(nrow(df), nrow(df_boot)),
+  beta_confianza = c(coef(modelo)[2], coef(modelo_boot)[2]),
+  beta_adaptacion = c(coef(modelo)[3], coef(modelo_boot)[3]),
+  R2 = c(summary(modelo)$r.squared, summary(modelo_boot)$r.squared)
+)
+```
+
+Las diferencias entre coeficientes se deben a qué filas fueron seleccionadas
+al azar y cuántas veces se repitieron. Un resultado más favorable en la base
+aumentada no sería una confirmación de la hipótesis. No mezclamos sus 200
+filas con las originales para declarar un N mayor de participantes.
+
+# Conclusiones y críticas según los apuntes
+
+## Qué muestran los datos
+
+El destinatario es la clase y la profesora. La afirmación central es:
+**el cruce permite describir cómo conviven hábitos de vestimenta y decisiones
+del juego, pero su diseño y el origen de los registros limitan lo que puede
+concluirse sobre influencia social y causalidad.**
+
+En la base seleccionada, la ropa tiene un impacto moderado sobre la confianza
+para `r sum(base_personas$confianza_ropa == 2, na.rm = TRUE)` de
+`r sum(!is.na(base_personas$confianza_ropa))` claves. En el juego hubo cambios
+de elección y una fuerte concentración de seguridad en la segunda ronda.
+La regresión recoge un R² de `r round(summary(modelo)$r.squared, 3)` para
+seguridad inicial, aproximadamente
+`r round(100 * summary(modelo)$r.squared, 1)`% de su variación en la muestra.
+La mayor parte de esa variación queda sin recoger por estas dos X.
+Estos resultados no necesitan mostrar una relación fuerte
+para aportar: también permiten evaluar la distancia entre lo que preguntó
+la encuesta y lo que captó el juego.
+
+## N, causalidad y objeción principal
+
+El N relevante para el modelo es el número de claves distintas con ambas
+fuentes y datos válidos en Y y X; no las filas repetidas, las dos rondas
+contadas por separado ni las 200 copias del remuestreo. Incluso ese N solo
+equivale a participantes efectivos si se verifica la procedencia de los
+registros. No consta una variable de origen que permita separar posibles
+datos sintéticos ya presentes.
+
+La encuesta es observacional y el juego no asignó aleatoriamente quién veía
+los resultados. Un antes y después sin grupo de comparación no separa el
+efecto de mostrar la votación de repetir la pregunta, conversar o cambiar
+de opinión. Edad, gustos, habilidades y relaciones entre compañeros podrían
+explicar diferencias. Una asociación o un p-valor pequeño no elimina estas
+alternativas.
+
+**La objeción más fuerte** es de medición: cuidar la apariencia, adaptar la
+ropa al contexto y cambiar entre juegos no son la misma conducta. Aunque no
+aparezca la relación esperada, no podemos concluir que la apariencia no se
+relacione con la influencia social en otros contextos. Si tampoco está
+documentado qué registros son reales, la interpretación empírica queda aún
+más limitada.
+
+## Críticas y qué haríamos diferente
+
+- Nos habría gustado diseñar y pilotear el juego antes de cerrar la encuesta,
+  para que ambos instrumentos midieran aspectos comparables. El orden por sí
+  solo no asegura mejores datos: habría que cuidar que un instrumento no
+  condicione las respuestas del otro.
+- El juego de elegir una actividad puede depender más de gustos y habilidades
+  que del cuidado de la imagen. Elegiríamos decisiones con un vínculo más
+  directo con la autoimagen y registraríamos por qué se cambia de elección.
+- La concentración de seguridad en 5 en la segunda ronda reduce la variación.
+  Revisaríamos las instrucciones y los anclajes de la escala con un piloto,
+  sin cambiar respuestas ya recogidas ni forzar un resultado distinto.
+- Mejoraríamos las opciones de tiempo de arreglo: falta el tramo de 30 a 60
+  minutos. También evitaríamos categorías solapadas como noche anterior y un
+  día antes, y separaríamos respuestas laborales reales de hipotéticas.
+- Usaríamos identificadores anónimos únicos y una regla definida de antemano
+  para respuestas repetidas. Registraríamos invitaciones, no respuestas y
+  participantes que completaron solo uno de los instrumentos.
+- Guardaríamos por separado los datos observados y los sintéticos, con una
+  columna de origen y documentación de su generación. Recolectar más casos
+  reales aportaría información que la aumentación no puede crear.
+- Para estudiar el efecto de mostrar resultados, propondríamos una comparación
+  con asignación aleatoria de la devolución, como en el contenido de
+  experimentos de clase. Ese diseño sería un trabajo futuro, no una propiedad
+  del juego actual.
+
+## Referencias de código y decisiones
+
+| Material (las rutas `clases/` son del repositorio del curso) | Uso en este informe |
+|---|---|
+| `codigo/analisis datos experimento.Rmd` | Estructura descriptiva, Fisher, phi y remuestreo |
+| `clases/clase3/clase_cargar_datos_R.qmd` | Lectura de CSV y Excel |
+| `clases/clase5/clase5_cargadatos2.R` | Perfilado con tipos, distintos y faltantes |
+| `clases/clase7/carga_y_transformacion.R` | Limpieza por diccionario, duplicados, agrupación |
+| `clases/clase8/pautas_equipos.qmd` | Documentación del proceso, alcance y crítica del propio trabajo |
+| `clases/clase9/union_y_graficos_por_grupo.R` | Uniones, puntos, cajas y subgrupos |
+| `clases/clase9/visualizacion_densidad_barras_caja.R` | Gráficas de barras y caja |
+| `clases/clase12/analisis_transito_aire.R` | Regresión simple y múltiple, factores, R² y residuos |
+
+El R Markdown original y los archivos de datos se mantienen como referencia.
+Todos los resultados se recalculan desde las fuentes al tejer este archivo.

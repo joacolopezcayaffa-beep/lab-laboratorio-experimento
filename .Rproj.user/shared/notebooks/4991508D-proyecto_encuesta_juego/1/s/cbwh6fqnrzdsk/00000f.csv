@@ -1,3 +1,0 @@
-"0","cruce |> count(cambia_segun_personas, cambio_voto) |>"
-"0","  group_by(cambia_segun_personas) |>"
-"0","  mutate(porcentaje = 100 * n / sum(n)) |> ungroup()"
