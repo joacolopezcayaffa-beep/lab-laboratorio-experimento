@@ -5,7 +5,7 @@ output:
   html_document:
     toc: true
     toc_depth: 2
-date: "2026-11-18"
+date: "2026-11-19"
 lang: es
 knit: (function(input, ...) rmarkdown::render(input, output_dir = here::here("salidas")))
 ---
@@ -623,7 +623,8 @@ de la elección en el juego.
 | Variable de análisis | Cálculo o codificación | Qué representa |
 |---|---|---|
 | `id` | P + número, asignado previamente en `codigo/00_anonimizar.R` | Código de participante y clave de unión |
-| `sexo_grupo` | 0 = Femenino; 1 = Masculino | Etiqueta del código de encuesta |
+| `sexo` | 0 = Femenino; 1 = Masculino | Control en la regresión; pregunta original |
+| `sexo_grupo` | Etiquetas Femenino/Masculino | Copia de presentación del código de encuesta |
 | `peluqueria` | Factor con etiquetas del diccionario | Frecuencia por categoría, no número de visitas |
 | `confianza_grupo` | 1 = No influye; 2 = Impacto moderado; 3 = Influye significativamente | Influencia declarada de la ropa |
 | `cambio_voto` | 1 si elección R1 difiere de R2; 0 si coincide | Cambio de primera opción |
@@ -660,12 +661,12 @@ seleccionada de su propio código. No se crea una correspondencia al azar.
 
 ```{r preparar-modelo}
 df <- cruce |>
-  select(ronda1_seguridad, confianza_ropa, cambia_segun_personas) |> na.omit()
+  select(ronda1_seguridad, confianza_ropa, cambia_segun_personas, sexo) |> na.omit()
 
 juego_boot <- juego_boot_crudo
 cruce_boot <- left_join(juego_boot, encuesta_personas, by = "id")
 df_boot <- cruce_boot |>
-  select(ronda1_seguridad, confianza_ropa, cambia_segun_personas) |> na.omit()
+  select(ronda1_seguridad, confianza_ropa, cambia_segun_personas, sexo) |> na.omit()
 
 tibble(
   base = c("Original del modelo", "Aumentada del modelo"),
@@ -744,7 +745,11 @@ la ropa en la confianza y cambiar la vestimenta según las personas con
 quienes se estará. La primera aproxima el vínculo declarado entre apariencia
 y seguridad; la segunda, la adaptación al contexto social. Son conceptos
 relacionados con la pregunta del proyecto, pero no idénticos a la decisión
-del juego. No seleccionamos variables para conseguir significación.
+del juego. Incorporamos además `sexo` como control (0 = femenino, 1 = masculino):
+la descriptiva mostró diferencias de vestimenta entre ambos grupos y queremos
+comparar las asociaciones con la seguridad inicial manteniendo fijo ese control.
+Esas diferencias de encuesta no prueban por sí mismas diferencias en la Y.
+No seleccionamos variables para conseguir significación.
 
 Usamos `lm()`, `summary()` y `coef()` de la clase 12. Aplicar un modelo lineal
 a escalas ordinales es una aproximación: supone iguales distancias entre
@@ -757,13 +762,13 @@ datos_modelo <- df  # Casos originales preparados después de la aumentación.
 nrow(datos_modelo)
 nrow(cruce) - nrow(datos_modelo)  # Casos excluidos por faltantes en Y o X.
 
-modelo <- lm(ronda1_seguridad ~ confianza_ropa + cambia_segun_personas,
+modelo <- lm(ronda1_seguridad ~ confianza_ropa + cambia_segun_personas + sexo,
              data = datos_modelo)
 summary(modelo)
 coef(modelo)
 summary(modelo)$r.squared
 
-modelo_categorias <- lm(ronda1_seguridad ~ factor(confianza_ropa) + cambia_segun_personas,
+modelo_categorias <- lm(ronda1_seguridad ~ factor(confianza_ropa) + cambia_segun_personas + sexo,
                         data = datos_modelo)
 summary(modelo_categorias)
 ```
@@ -775,11 +780,15 @@ de seguridad inicial que recoge dentro de esta base.
 
 El coeficiente de confianza en la ropa es
 `r round(coef(modelo)["confianza_ropa"], 3)`: un punto más en su código se
-asocia con esa diferencia en puntos de seguridad inicial, manteniendo fija
-la adaptación de vestimenta. El coeficiente de adaptación es
+asocia con esa diferencia en puntos de seguridad inicial, manteniendo fijos
+la adaptación de vestimenta y el sexo. El coeficiente de adaptación es
 `r round(coef(modelo)["cambia_segun_personas"], 3)`: compara quienes contestan
-sí con quienes contestan no, al mismo código de confianza. Son asociaciones,
-no efectos causales. El intercepto evalúa confianza = 0, fuera de su escala,
+sí con quienes contestan no, al mismo código de confianza y sexo.
+El coeficiente de sexo es `r round(coef(modelo)["sexo"], 3)`: diferencia
+masculino menos femenino a iguales valores de las dos variables de vestimenta;
+su p-valor es `r round(summary(modelo)$coefficients["sexo", 4], 3)`.
+Son asociaciones, no efectos causales. El intercepto corresponde al grupo
+femenino con adaptación = 0 y confianza = 0, fuera de esta última escala,
 por lo que no representa un perfil observado.
 
 No se usa la seguridad de la segunda ronda para explicar la primera, porque
@@ -803,7 +812,8 @@ ggplot(datos_modelo, aes(x = predicho, y = residuo)) +
 
 ggsave(here("salidas/08_residuos_modelo.png"), plot = last_plot(),
        width = 10, height = 6, units = "in", dpi = 300, bg = "white")
-sd(datos_modelo$residuo)
+tibble(error_estandar_residual = summary(modelo)$sigma,
+       desvio_residuos = sd(datos_modelo$residuo))
 datos_modelo |> filter(abs(residuo) == max(abs(residuo)))
 ```
 
@@ -823,14 +833,15 @@ Las diferencias muestran cuánto depende el resultado de esa decisión.
 encuesta_ultima <- encuesta |> filter(!duplicated(id, fromLast = TRUE))
 cruce_ultima <- left_join(encuesta_ultima, juego, by = "id") |>
   filter(id %in% juego$id) |>
-  select(ronda1_seguridad, confianza_ropa, cambia_segun_personas) |> na.omit()
-modelo_ultima <- lm(ronda1_seguridad ~ confianza_ropa + cambia_segun_personas,
+  select(ronda1_seguridad, confianza_ropa, cambia_segun_personas, sexo) |> na.omit()
+modelo_ultima <- lm(ronda1_seguridad ~ confianza_ropa + cambia_segun_personas + sexo,
                     data = cruce_ultima)
 tibble(
   respuesta = c("Primera", "Última"),
   N = c(nrow(datos_modelo), nrow(cruce_ultima)),
   beta_confianza = c(coef(modelo)[2], coef(modelo_ultima)[2]),
   beta_adaptacion = c(coef(modelo)[3], coef(modelo_ultima)[3]),
+  beta_sexo = c(coef(modelo)["sexo"], coef(modelo_ultima)["sexo"]),
   R2 = c(summary(modelo)$r.squared, summary(modelo_ultima)$r.squared)
 )
 ```
@@ -844,7 +855,7 @@ de filas utilizado. La interpretación sobre participantes se apoya en los
 registros originales y en que su procedencia esté documentada.
 
 ```{r modelo-aumentado}
-modelo_boot <- lm(ronda1_seguridad ~ confianza_ropa + cambia_segun_personas,
+modelo_boot <- lm(ronda1_seguridad ~ confianza_ropa + cambia_segun_personas + sexo,
                   data = df_boot)
 coef(modelo_boot)
 summary(modelo_boot)$r.squared
@@ -854,6 +865,7 @@ tibble(
   filas = c(nrow(df), nrow(df_boot)),
   beta_confianza = c(coef(modelo)[2], coef(modelo_boot)[2]),
   beta_adaptacion = c(coef(modelo)[3], coef(modelo_boot)[3]),
+  beta_sexo = c(coef(modelo)["sexo"], coef(modelo_boot)["sexo"]),
   R2 = c(summary(modelo)$r.squared, summary(modelo_boot)$r.squared)
 )
 ```
@@ -877,9 +889,9 @@ resumen_original <- summary(modelo)$coefficients
 resumen_aumentado <- summary(modelo_boot)$coefficients
 
 comparacion_precision <- tibble(
-  base = c(rep("Original", 3), rep("Aumentada: demostración", 3)),
+  base = c(rep("Original", 4), rep("Aumentada: demostración", 4)),
   termino = rep(c("Intercepto", "Confianza asociada a la ropa",
-                  "Cambia ropa según personas"), 2),
+                  "Cambia ropa según personas", "Sexo: masculino frente a femenino"), 2),
   coeficiente = c(resumen_original[, 1], resumen_aumentado[, 1]),
   error_estandar = c(resumen_original[, 2], resumen_aumentado[, 2]),
   p_valor = c(resumen_original[, 4], resumen_aumentado[, 4])
@@ -980,7 +992,15 @@ de elección y una fuerte concentración de seguridad en la segunda ronda.
 La regresión recoge un R² de `r round(summary(modelo)$r.squared, 3)` para
 seguridad inicial, aproximadamente
 `r round(100 * summary(modelo)$r.squared, 1)`% de su variación en la muestra.
-La mayor parte de esa variación queda sin recoger por estas dos X.
+La mayor parte de esa variación queda sin recoger por las dos X de vestimenta
+y el control por sexo. Al comparar a igual sexo, confianza y adaptación
+mantienen p-valores de `r round(resumen_original["confianza_ropa", 4], 3)` y
+`r round(resumen_original["cambia_segun_personas", 4], 3)`, respectivamente.
+Para sexo, el coeficiente es `r round(coef(modelo)["sexo"], 3)` y su p-valor
+es `r round(resumen_original["sexo", 4], 3)`.
+`r ifelse(all(resumen_original[-1, 4] >= 0.05), "Ninguno de los tres regresores presenta evidencia suficiente de asociación al 5% en el modelo original; esto no demuestra que no exista relación.", "Los p-valores de cada regresor deben interpretarse junto con sus estimaciones, incertidumbre y límites del diseño.")`
+Incluir sexo permite revisar esa asociación condicional, pero no convierte
+el modelo en causal ni corrige las limitaciones de medición o selección.
 Estos resultados no necesitan mostrar una relación fuerte
 para aportar: también permiten evaluar la distancia entre lo que preguntó
 la encuesta y lo que captó el juego.
