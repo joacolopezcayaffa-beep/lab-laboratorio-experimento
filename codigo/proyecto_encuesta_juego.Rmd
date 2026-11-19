@@ -31,7 +31,7 @@ elección en el juego?
 
 Abrir primero `lab-laboratorio-experimento.Rproj` y luego este archivo.
 Las rutas parten de la raíz del proyecto, igual que en los ejemplos con `here`.
-Los datos que usa el informe están en `datos/crudos`; el HTML generado con
+Los datos que usa el informe están en `datos`; el HTML generado con
 Knit se guarda en `resultados`.
 
 ```{r paquetes, message=FALSE}
@@ -54,7 +54,7 @@ cuatro actividades y su seguridad, antes y después de mostrar resultados
 grupales. El código de participante `id` (P01, P02, ...) es el mismo en
 ambos instrumentos y permite vincularlos sin publicar los correos.
 
-Los cuatro CSV de `datos/crudos` proceden del proceso de
+Los cuatro CSV de `datos` proceden del proceso de
 `codigo/00_anonimizar.R`. Ese script normaliza los correos, asigna un código
 consistente a cada participante y guarda la correspondencia en
 `datos/originales`, fuera de los archivos versionados. El informe usa los CSV
@@ -63,16 +63,16 @@ anonimización. Cada tabla tiene su diccionario de variables.
 
 ```{r importar}
 encuesta_cruda <- read_csv(
-  here("datos/crudos/encuesta.csv"), show_col_types = FALSE
+  here("datos/encuesta.csv"), show_col_types = FALSE
 )
 juego_crudo <- read_csv(
-  here("datos/crudos/juego.csv"), show_col_types = FALSE
+  here("datos/juego.csv"), show_col_types = FALSE
 )
 diccionario_encuesta <- read_csv(
-  here("datos/crudos/diccionario_encuesta.csv"), show_col_types = FALSE
+  here("datos/diccionario_encuesta.csv"), show_col_types = FALSE
 )
 diccionario_juego <- read_csv(
-  here("datos/crudos/diccionario_juego.csv"), show_col_types = FALSE
+  here("datos/diccionario_juego.csv"), show_col_types = FALSE
 )
 ```
 

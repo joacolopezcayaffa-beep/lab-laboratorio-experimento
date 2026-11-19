@@ -5,7 +5,7 @@
 #   - base_datos_encuesta.csv       (encuesta de Google Forms)
 #   - base_datos_encuesta_excel.xlsx (hoja "Diccionario")
 #   - base_votaciones_juego.xlsx     (hojas "votaciones" y "diccionario")
-# Salida (se versiona): datos/crudos/
+# Salida (se versiona): datos/
 #   - encuesta.csv, juego.csv, diccionario_encuesta.csv, diccionario_juego.csv
 # Además guarda la correspondencia correo -> código en datos/originales/,
 # que tampoco se versiona.
@@ -20,7 +20,7 @@ library(readxl)
 library(here)
 
 orig <- here("datos/originales")
-dir.create(here("datos/crudos"), showWarnings = FALSE, recursive = TRUE)
+dir.create(here("datos"), showWarnings = FALSE, recursive = TRUE)
 
 encuesta <- read_csv(file.path(orig, "base_datos_encuesta.csv"),
                      show_col_types = FALSE)
@@ -78,8 +78,8 @@ dic_juego <- tibble(
                 "Vacío sin respuesta", "Vacío sin respuesta")
 )
 
-write_csv(encuesta_anon, here("datos/crudos/encuesta.csv"), na = "")
-write_csv(juego_anon, here("datos/crudos/juego.csv"), na = "")
-write_csv(dic_encuesta, here("datos/crudos/diccionario_encuesta.csv"), na = "")
-write_csv(dic_juego, here("datos/crudos/diccionario_juego.csv"), na = "")
+write_csv(encuesta_anon, here("datos/encuesta.csv"), na = "")
+write_csv(juego_anon, here("datos/juego.csv"), na = "")
+write_csv(dic_encuesta, here("datos/diccionario_encuesta.csv"), na = "")
+write_csv(dic_juego, here("datos/diccionario_juego.csv"), na = "")
 write_csv(correspondencia, file.path(orig, "correspondencia_codigos.csv"))
